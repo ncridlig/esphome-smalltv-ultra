@@ -1,0 +1,318 @@
+esphome:
+  name: geekmagic
+  friendly_name: Mini Display Clock
+
+esp8266:
+  board: esp01_1m
+
+logger:
+
+api:
+
+web_server:
+  port: 80
+
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  min_auth_mode: WPA2
+
+  ap:
+    ssid: "Mini-Display-Tv"
+    password: "12345678"
+
+captive_portal:
+
+spi:
+  clk_pin: GPIO14
+  mosi_pin: GPIO13
+  interface: hardware
+  id: spihwd
+
+output:
+  - platform: esp8266_pwm
+    pin: GPIO05
+    frequency: 200 Hz
+    inverted: true
+    id: backlight_pwm
+
+light:
+  - platform: monochromatic
+    output: backlight_pwm
+    name: "Backlight"
+    id: backlight
+    restore_mode: RESTORE_AND_ON
+
+font:
+  - file: "gfonts://Orbitron"
+    id: clock_font
+    size: 100
+  - file: "gfonts://Stack+Sans+Notch"
+    id: rain_font
+    size: 16
+
+time:
+  - platform: sntp
+    id: ntp_time
+    timezone: America/New_York  # ← change to your timezone (https://en.wikipedia.org/wiki/List_of_tz_database_time_zones)
+
+# Toggle in Home Assistant: switch.night_mode
+switch:
+  - platform: template
+    name: "Night Mode"
+    id: night_mode_switch
+    restore_mode: RESTORE_DEFAULT_OFF
+    lambda: return id(night_mode);
+    turn_on_action:
+      - globals.set:
+          id: night_mode
+          value: 'true'
+    turn_off_action:
+      - globals.set:
+          id: night_mode
+          value: 'false'
+
+globals:
+  # Night mode toggle (persists across reboots)
+  - id: night_mode
+    type: bool
+    restore_value: yes
+    initial_value: 'false'
+
+  # Shooting star position
+  - id: star_x
+    type: int
+    restore_value: no
+    initial_value: '-30'
+  - id: star_y
+    type: int
+    restore_value: no
+    initial_value: '-20'
+
+  # Pixel shift for burn-in protection
+  - id: x_shift
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: y_shift
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+  # Raindrop X positions
+  - id: drop_x1
+    type: int
+    restore_value: no
+    initial_value: '10'
+  - id: drop_x2
+    type: int
+    restore_value: no
+    initial_value: '50'
+  - id: drop_x3
+    type: int
+    restore_value: no
+    initial_value: '90'
+  - id: drop_x4
+    type: int
+    restore_value: no
+    initial_value: '130'
+  - id: drop_x5
+    type: int
+    restore_value: no
+    initial_value: '170'
+  - id: drop_x6
+    type: int
+    restore_value: no
+    initial_value: '210'
+  - id: drop_x7
+    type: int
+    restore_value: no
+    initial_value: '30'
+  - id: drop_x8
+    type: int
+    restore_value: no
+    initial_value: '70'
+  - id: drop_x9
+    type: int
+    restore_value: no
+    initial_value: '110'
+  - id: drop_x10
+    type: int
+    restore_value: no
+    initial_value: '150'
+
+  # Raindrop Y positions
+  - id: drop_y1
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: drop_y2
+    type: int
+    restore_value: no
+    initial_value: '30'
+  - id: drop_y3
+    type: int
+    restore_value: no
+    initial_value: '60'
+  - id: drop_y4
+    type: int
+    restore_value: no
+    initial_value: '90'
+  - id: drop_y5
+    type: int
+    restore_value: no
+    initial_value: '120'
+  - id: drop_y6
+    type: int
+    restore_value: no
+    initial_value: '150'
+  - id: drop_y7
+    type: int
+    restore_value: no
+    initial_value: '180'
+  - id: drop_y8
+    type: int
+    restore_value: no
+    initial_value: '210'
+  - id: drop_y9
+    type: int
+    restore_value: no
+    initial_value: '60'
+  - id: drop_y10
+    type: int
+    restore_value: no
+    initial_value: '120'
+
+interval:
+  # Pixel shift every minute for burn-in protection
+  - interval: 60s
+    then:
+      - lambda: |-
+          id(x_shift) = (id(x_shift) + 1) % 5;
+          id(y_shift) = (id(y_shift) + 1) % 5;
+
+display:
+  - platform: mipi_spi
+    model: st7789v
+    spi_id: spihwd
+    dimensions:
+      width: 240
+      height: 240
+    invert_colors: true
+    dc_pin: GPIO00
+    reset_pin: GPIO02
+    color_depth: 8
+    update_interval: 50ms
+    id: disp
+    spi_mode: mode3
+
+    lambda: |-
+      if (id(night_mode)) {
+        // ── NIGHT MODE ──────────────────────────────────────────────
+        it.fill(Color(0, 0, 20));  // Deep night-blue background
+
+        // Static stars scattered in upper two-thirds of screen
+        static const uint8_t STAR_XS[] = {12, 42, 78, 115, 158, 192, 218, 28, 62, 98, 138, 178, 208, 22, 72, 165, 5, 105, 230, 52};
+        static const uint8_t STAR_YS[] = {18, 48, 12, 32, 22,   8,  42, 78, 68, 88,  58,  72,  28, 108, 98,  55, 62, 140, 110, 130};
+        for (int i = 0; i < 20; i++) {
+          it.filled_rectangle(STAR_XS[i], STAR_YS[i], 2, 2, Color::WHITE);
+        }
+
+        // Crescent moon — upper-left corner, warm yellow-white
+        // Draw full circle then punch a crescent hole with background color
+        it.filled_circle(38, 38, 28, Color(255, 252, 180));
+        it.filled_circle(52, 28, 23, Color(0, 0, 20));
+
+        // Shooting star: moves diagonally top-left → bottom-right
+        id(star_x) = id(star_x) + 3;
+        id(star_y) = id(star_y) + 2;
+        if (id(star_x) > 280 || id(star_y) > 260) {
+          // Respawn off the top or left edge
+          if (random(0, 2) == 0) {
+            id(star_x) = random(-60, 40);
+            id(star_y) = random(-30, -5);
+          } else {
+            id(star_x) = random(-80, -10);
+            id(star_y) = random(-20, 80);
+          }
+        }
+        // Draw glowing head + fading tail (8 segments)
+        for (int t = 0; t < 8; t++) {
+          int tx = id(star_x) - t * 3;
+          int ty = id(star_y) - t * 2;
+          if (tx >= 0 && tx < 240 && ty >= 0 && ty < 240) {
+            uint8_t b = (uint8_t)(255 - t * 28);
+            // Warm white → yellow tail
+            it.filled_rectangle(tx, ty, 2, 2, Color(b, b, (uint8_t)(b / 4)));
+          }
+        }
+
+        // Clock — same position as day mode
+        auto now = id(ntp_time).now();
+        if (now.is_valid()) {
+          char hour_str[4];
+          char min_str[4];
+          snprintf(hour_str, sizeof(hour_str), "%02d", now.hour);
+          snprintf(min_str, sizeof(min_str), "%02d", now.minute);
+          int cx  = 120 + id(x_shift);
+          int cy1 =  70 + id(y_shift);
+          int cy2 = 170 + id(y_shift);
+          it.printf(cx, cy1, id(clock_font), Color::WHITE, TextAlign::CENTER, "%s", hour_str);
+          it.line(40 + id(x_shift), 120 + id(y_shift), 200 + id(x_shift), 120 + id(y_shift), Color(80, 80, 80));
+          it.printf(cx, cy2, id(clock_font), Color::WHITE, TextAlign::CENTER, "%s", min_str);
+        }
+
+      } else {
+        // ── RAIN MODE ───────────────────────────────────────────────
+        it.fill(Color::BLACK);
+
+        int xs[10] = {id(drop_x1), id(drop_x2), id(drop_x3), id(drop_x4), id(drop_x5),
+                      id(drop_x6), id(drop_x7), id(drop_x8), id(drop_x9), id(drop_x10)};
+        int ys[10] = {id(drop_y1), id(drop_y2), id(drop_y3), id(drop_y4), id(drop_y5),
+                      id(drop_y6), id(drop_y7), id(drop_y8), id(drop_y9), id(drop_y10)};
+        int speeds[10] = {2, 3, 4, 2, 3, 5, 2, 4, 3, 5};
+
+        // Draw raindrops
+        for (int i = 0; i < 10; i++) {
+          it.printf(xs[i], ys[i], id(rain_font), Color(0, 0, 255), TextAlign::CENTER, "💧");
+        }
+
+        // Move raindrops
+        for (int i = 0; i < 10; i++) {
+          ys[i] += speeds[i];
+          if (ys[i] > 240) {
+            ys[i] = 0;
+            xs[i] = random(0, 240);
+          }
+        }
+
+        // Save positions back to globals
+        id(drop_x1) = xs[0];  id(drop_y1) = ys[0];
+        id(drop_x2) = xs[1];  id(drop_y2) = ys[1];
+        id(drop_x3) = xs[2];  id(drop_y3) = ys[2];
+        id(drop_x4) = xs[3];  id(drop_y4) = ys[3];
+        id(drop_x5) = xs[4];  id(drop_y5) = ys[4];
+        id(drop_x6) = xs[5];  id(drop_y6) = ys[5];
+        id(drop_x7) = xs[6];  id(drop_y7) = ys[6];
+        id(drop_x8) = xs[7];  id(drop_y8) = ys[7];
+        id(drop_x9) = xs[8];  id(drop_y9) = ys[8];
+        id(drop_x10) = xs[9]; id(drop_y10) = ys[9];
+
+        // Draw clock on top
+        auto now = id(ntp_time).now();
+        if (now.is_valid()) {
+          char hour_str[4];
+          char min_str[4];
+          snprintf(hour_str, sizeof(hour_str), "%02d", now.hour);
+          snprintf(min_str, sizeof(min_str), "%02d", now.minute);
+          int cx  = 120 + id(x_shift);
+          int cy1 =  70 + id(y_shift);
+          int cy2 = 170 + id(y_shift);
+          it.printf(cx, cy1, id(clock_font), Color::WHITE, TextAlign::CENTER, "%s", hour_str);
+          it.line(40 + id(x_shift), 120 + id(y_shift), 200 + id(x_shift), 120 + id(y_shift), Color(80, 80, 80));
+          it.printf(cx, cy2, id(clock_font), Color::WHITE, TextAlign::CENTER, "%s", min_str);
+        }
+      }
