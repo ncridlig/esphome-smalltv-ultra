@@ -33,18 +33,24 @@ The device ships with vendor firmware. To flash ESPhome you need to open it and 
 ### Clock display
 - Large digit clock using the **Orbitron** Google Font at size 100
 - Hours and minutes separated by a thin divider line
+- Clock always rendered on top of all animations
 - Burn-in protection: display position shifts by 1px every minute
 
-### Rain mode (default)
-- 10 animated 💧 raindrops fall down the screen at varying speeds
-- Each raindrop resets at the top with a random X position after reaching the bottom
-- Clock is drawn on top of the rain
+### Day mode — Helios
+Helios (the sun god) drives his horse-drawn chariot along a parabolic arc across the sky every ~75 seconds. His crown radiates 8 golden rays. Two horses with legs, necks, and reins pull the chariot. Weather affects the scene:
+
+- **Clear**: blue sky, Helios arcs freely
+- **Rain**: dark stormy sky, diagonal raindrops, random lightning bolts strike near Helios with a flash halo
+- **Cloudy**: overcast sky, two cloud layers drift past at different speeds, dimming Helios's glow
+- **Windy**: breezy sky, Helios and chariot wobble sinusoidally, wind streaks scroll across the scene
 
 ### Night mode
-- Deep night-blue background
-- 20 static stars scattered across the screen
-- Crescent moon in the upper-left corner (warm yellow-white)
-- Shooting star that streaks diagonally across the screen with a glowing tail, then respawns
+- Deep night-blue background with 20 static stars
+- Crescent moon (warm yellow-white) in the upper-left corner
+- Shooting star streaks diagonally with a glowing tail, respawning off a random edge
+
+### Weather source
+Set the `select.weather` entity to **Auto** to pull from your Home Assistant `weather.*` entity automatically, or override manually for testing.
 
 ---
 
@@ -55,11 +61,30 @@ After adopting the device in Home Assistant, you get:
 | Entity | Type | Description |
 |--------|------|-------------|
 | `light.mini_display_clock_backlight` | Light | Backlight brightness (dimmable) |
-| `switch.night_mode` | Switch | Toggle between Rain and Night mode |
+| `switch.night_mode` | Switch | DAY (off) / NIGHT (on) |
+| `select.weather` | Select | `Auto / Clear / Rain / Cloudy / Windy` |
 
-Toggle **Night Mode** on at sunset via an automation, or add it to a dashboard card.
+### Weather modes
 
-### Example automation (Lovelace)
+| Mode | Scene |
+|------|-------|
+| **Clear** | DAY → Helios drives his chariot across a blue sky. NIGHT → crescent moon, stars, shooting star. |
+| **Rain** | Dark stormy sky, diagonal rain, Helios getting struck by lightning. |
+| **Cloudy** | Overcast sky, two cloud layers drifting past Helios at different speeds. |
+| **Windy** | Breezy sky, Helios and chariot blown around with sinusoidal wobble, wind streaks scrolling across. |
+
+**Auto** mode reads your `weather.*` entity from Home Assistant and maps it automatically:
+
+| HA weather state | Display mode |
+|-----------------|--------------|
+| `sunny`, `clear-night`, `partlycloudy` | Clear |
+| `rainy`, `pouring`, `lightning-rainy`, `drizzle` | Rain |
+| `cloudy`, `overcast`, `fog`, `snowy`, `hail` | Cloudy |
+| `windy`, `windy-variant` | Windy |
+
+Change the `entity_id` under `text_sensor:` in `ultratv.yaml` to match your integration (e.g. `weather.openweathermap`).
+
+### Example automation
 
 ```yaml
 automation:
@@ -71,7 +96,7 @@ automation:
       - service: switch.turn_on
         target:
           entity_id: switch.night_mode
-  - alias: "SmallTV Rain Mode at sunrise"
+  - alias: "SmallTV Day Mode at sunrise"
     trigger:
       - platform: sun
         event: sunrise

@@ -52,37 +52,109 @@ font:
     size: 100
   - file: "gfonts://Stack+Sans+Notch"
     id: rain_font
-    size: 16
+    size: 14
 
 time:
   - platform: sntp
     id: ntp_time
     timezone: America/New_York  # ← change to your timezone (https://en.wikipedia.org/wiki/List_of_tz_database_time_zones)
 
-# Toggle in Home Assistant: switch.night_mode
+# ── Home Assistant controls ──────────────────────────────────────────────────
+#   switch.night_mode  → DAY (off) / NIGHT (on)
+#   select.weather     → Auto / Clear / Rain / Cloudy / Windy
+# ────────────────────────────────────────────────────────────────────────────
+
 switch:
   - platform: template
     name: "Night Mode"
-    id: night_mode_switch
+    id: night_switch
     restore_mode: RESTORE_DEFAULT_OFF
-    lambda: return id(night_mode);
+    lambda: return id(is_night);
     turn_on_action:
       - globals.set:
-          id: night_mode
+          id: is_night
           value: 'true'
     turn_off_action:
       - globals.set:
-          id: night_mode
+          id: is_night
           value: 'false'
 
+select:
+  - platform: template
+    name: "Weather"
+    id: weather_select
+    options:
+      - "Auto"
+      - "Clear"
+      - "Rain"
+      - "Cloudy"
+      - "Windy"
+    initial_option: "Auto"
+    restore_value: true
+    set_action:
+      - lambda: |-
+          if      (x == "Rain")   id(weather_mode) = 1;
+          else if (x == "Cloudy") id(weather_mode) = 2;
+          else if (x == "Windy")  id(weather_mode) = 3;
+          else                    id(weather_mode) = 0;  // Clear or Auto
+
+# Pulls live weather state from Home Assistant.
+# Change entity_id to match your weather integration (e.g. weather.openweathermap).
+text_sensor:
+  - platform: homeassistant
+    id: ha_weather
+    entity_id: weather.home
+    on_value:
+      then:
+        - lambda: |-
+            if (id(weather_select).state != "Auto") return;
+            if (x.find("rain")      != std::string::npos ||
+                x.find("lightning") != std::string::npos ||
+                x.find("pour")      != std::string::npos ||
+                x.find("drizzle")   != std::string::npos) {
+              id(weather_mode) = 1;
+            } else if (x.find("cloud")   != std::string::npos ||
+                       x.find("fog")     != std::string::npos ||
+                       x.find("snow")    != std::string::npos ||
+                       x.find("hail")    != std::string::npos ||
+                       x == "overcast") {
+              id(weather_mode) = 2;
+            } else if (x.find("wind") != std::string::npos) {
+              id(weather_mode) = 3;
+            } else {
+              id(weather_mode) = 0;  // sunny, clear, partlycloudy → Clear
+            }
+
 globals:
-  # Night mode toggle (persists across reboots)
-  - id: night_mode
+  # ── Mode state ──────────────────────────────────────────────────────────
+  - id: is_night
     type: bool
     restore_value: yes
     initial_value: 'false'
 
-  # Shooting star position
+  # 0 = CLEAR  1 = RAIN  2 = CLOUDY  3 = WINDY
+  - id: weather_mode
+    type: int
+    restore_value: yes
+    initial_value: '0'
+
+  # ── Animation counter ────────────────────────────────────────────────────
+  - id: anim_frame
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+  # Lightning state (rain mode)
+  - id: lightning_timer
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: lightning_x
+    type: int
+    restore_value: no
+    initial_value: '100'
+
+  # Shooting star (clear night)
   - id: star_x
     type: int
     restore_value: no
@@ -92,7 +164,7 @@ globals:
     restore_value: no
     initial_value: '-20'
 
-  # Pixel shift for burn-in protection
+  # Burn-in pixel shift
   - id: x_shift
     type: int
     restore_value: no
@@ -187,7 +259,6 @@ globals:
     initial_value: '120'
 
 interval:
-  # Pixel shift every minute for burn-in protection
   - interval: 60s
     then:
       - lambda: |-
@@ -210,109 +281,194 @@ display:
     spi_mode: mode3
 
     lambda: |-
-      if (id(night_mode)) {
-        // ── NIGHT MODE ──────────────────────────────────────────────
-        it.fill(Color(0, 0, 20));  // Deep night-blue background
+      id(anim_frame) += 1;
+      int f  = id(anim_frame);
+      int wm = id(weather_mode);   // 0=CLEAR 1=RAIN 2=CLOUDY 3=WINDY
+      bool night = id(is_night);
 
-        // Static stars scattered in upper two-thirds of screen
-        static const uint8_t STAR_XS[] = {12, 42, 78, 115, 158, 192, 218, 28, 62, 98, 138, 178, 208, 22, 72, 165, 5, 105, 230, 52};
-        static const uint8_t STAR_YS[] = {18, 48, 12, 32, 22,   8,  42, 78, 68, 88,  58,  72,  28, 108, 98,  55, 62, 140, 110, 130};
-        for (int i = 0; i < 20; i++) {
-          it.filled_rectangle(STAR_XS[i], STAR_YS[i], 2, 2, Color::WHITE);
-        }
+      // ── Helios arc position ─────────────────────────────────────────────
+      // Crosses sky in 1500 frames (~75 s). hx: -60 → 299.
+      int hx = (f % 1500) * 360 / 1500 - 60;
+      // Parabolic arc: peaks at y=35 (center), sinks to ~y=131 at screen edges.
+      int hy = 35 + (hx - 120) * (hx - 120) / 150;
+      bool helios_on_screen = (!night) && (hx > -65) && (hx < 305);
 
-        // Crescent moon — upper-left corner, warm yellow-white
-        // Draw full circle then punch a crescent hole with background color
+      // ── Background ──────────────────────────────────────────────────────
+      if      (night && wm == 0) it.fill(Color(0,   0,  20));   // clear night
+      else if (wm == 1)          it.fill(Color(20,  25,  45));  // stormy
+      else if (wm == 2)          it.fill(Color(100,110, 125));  // overcast
+      else if (wm == 3)          it.fill(Color(140,195, 230));  // breezy
+      else                       it.fill(Color(80, 155, 220));  // clear day
+
+      // ════════════════════════════════════════════════════════════════════
+      // CLEAR NIGHT — stars, crescent moon, shooting star
+      // ════════════════════════════════════════════════════════════════════
+      if (night && wm == 0) {
+        static const uint8_t SX[] = {12,42,78,115,158,192,218,28,62,98,138,178,208,22,72,165,5,105,230,52};
+        static const uint8_t SY[] = {18,48,12, 32, 22,  8, 42,78,68,88, 58, 72, 28,108,98, 55,62,140,110,130};
+        for (int i = 0; i < 20; i++)
+          it.filled_rectangle(SX[i], SY[i], 2, 2, Color::WHITE);
+
         it.filled_circle(38, 38, 28, Color(255, 252, 180));
         it.filled_circle(52, 28, 23, Color(0, 0, 20));
 
-        // Shooting star: moves diagonally top-left → bottom-right
-        id(star_x) = id(star_x) + 3;
-        id(star_y) = id(star_y) + 2;
+        id(star_x) += 3;  id(star_y) += 2;
         if (id(star_x) > 280 || id(star_y) > 260) {
-          // Respawn off the top or left edge
-          if (random(0, 2) == 0) {
-            id(star_x) = random(-60, 40);
-            id(star_y) = random(-30, -5);
-          } else {
-            id(star_x) = random(-80, -10);
-            id(star_y) = random(-20, 80);
-          }
+          if (random(0,2)==0) { id(star_x)=random(-60,40);  id(star_y)=random(-30,-5); }
+          else                { id(star_x)=random(-80,-10); id(star_y)=random(-20,80); }
         }
-        // Draw glowing head + fading tail (8 segments)
         for (int t = 0; t < 8; t++) {
-          int tx = id(star_x) - t * 3;
-          int ty = id(star_y) - t * 2;
-          if (tx >= 0 && tx < 240 && ty >= 0 && ty < 240) {
-            uint8_t b = (uint8_t)(255 - t * 28);
-            // Warm white → yellow tail
-            it.filled_rectangle(tx, ty, 2, 2, Color(b, b, (uint8_t)(b / 4)));
+          int tx = id(star_x)-t*3, ty = id(star_y)-t*2;
+          if (tx>=0&&tx<240&&ty>=0&&ty<240) {
+            uint8_t b = (uint8_t)(255 - t*28);
+            it.filled_rectangle(tx, ty, 2, 2, Color(b, b, (uint8_t)(b/4)));
           }
         }
 
-        // Clock — same position as day mode
-        auto now = id(ntp_time).now();
-        if (now.is_valid()) {
-          char hour_str[4];
-          char min_str[4];
-          snprintf(hour_str, sizeof(hour_str), "%02d", now.hour);
-          snprintf(min_str, sizeof(min_str), "%02d", now.minute);
-          int cx  = 120 + id(x_shift);
-          int cy1 =  70 + id(y_shift);
-          int cy2 = 170 + id(y_shift);
-          it.printf(cx, cy1, id(clock_font), Color::WHITE, TextAlign::CENTER, "%s", hour_str);
-          it.line(40 + id(x_shift), 120 + id(y_shift), 200 + id(x_shift), 120 + id(y_shift), Color(80, 80, 80));
-          it.printf(cx, cy2, id(clock_font), Color::WHITE, TextAlign::CENTER, "%s", min_str);
-        }
-
+      // ════════════════════════════════════════════════════════════════════
+      // ALL OTHER MODES — Helios + weather effects
+      // ════════════════════════════════════════════════════════════════════
       } else {
-        // ── RAIN MODE ───────────────────────────────────────────────
-        it.fill(Color::BLACK);
 
-        int xs[10] = {id(drop_x1), id(drop_x2), id(drop_x3), id(drop_x4), id(drop_x5),
-                      id(drop_x6), id(drop_x7), id(drop_x8), id(drop_x9), id(drop_x10)};
-        int ys[10] = {id(drop_y1), id(drop_y2), id(drop_y3), id(drop_y4), id(drop_y5),
-                      id(drop_y6), id(drop_y7), id(drop_y8), id(drop_y9), id(drop_y10)};
-        int speeds[10] = {2, 3, 4, 2, 3, 5, 2, 4, 3, 5};
-
-        // Draw raindrops
-        for (int i = 0; i < 10; i++) {
-          it.printf(xs[i], ys[i], id(rain_font), Color(0, 0, 255), TextAlign::CENTER, "💧");
+        // ── Helios position (WINDY wobble applied) ──────────────────────
+        int dhx = hx;
+        int dhy = hy;
+        if (wm == 3 && helios_on_screen) {
+          dhy += (int)(sinf(f * 0.08f) * 14.0f);
+          dhx += (int)(sinf(f * 0.13f) *  9.0f);
         }
 
-        // Move raindrops
-        for (int i = 0; i < 10; i++) {
-          ys[i] += speeds[i];
-          if (ys[i] > 240) {
-            ys[i] = 0;
-            xs[i] = random(0, 240);
+        // ── Draw Helios (sun, crown, chariot, horses) ───────────────────
+        if (helios_on_screen) {
+          Color sun_col = (wm == 2) ? Color(180, 155, 60) : Color(255, 220, 50);
+
+          // Sun disc
+          it.filled_circle(dhx, dhy, 20, sun_col);
+
+          // Crown: 8 radiating rays
+          for (int r = 0; r < 8; r++) {
+            float a = r * 0.7854f;
+            int x1 = dhx + (int)(cosf(a) * 22.0f);
+            int y1 = dhy + (int)(sinf(a) * 22.0f);
+            int x2 = dhx + (int)(cosf(a) * 35.0f);
+            int y2 = dhy + (int)(sinf(a) * 35.0f);
+            it.line(x1, y1, x2, y2, sun_col);
+          }
+
+          // Chariot body (below sun disc)
+          int cbx = dhx - 20;
+          int cby = dhy + 24;
+          it.filled_rectangle(cbx,   cby,   40, 13, Color(150,  90, 15));  // body
+          it.filled_rectangle(cbx+1, cby-2, 38,  4, Color(220, 180, 40));  // gold trim
+
+          // Left wheel (spokes)
+          int wlx = dhx - 17, wly = cby + 13;
+          it.circle(wlx, wly, 9, Color(220, 180, 40));
+          it.line(wlx, wly-9, wlx, wly+9, Color(220, 180, 40));
+          it.line(wlx-9, wly, wlx+9, wly, Color(220, 180, 40));
+
+          // Right wheel
+          int wrx = dhx + 17, wry = cby + 13;
+          it.circle(wrx, wry, 9, Color(220, 180, 40));
+          it.line(wrx, wry-9, wrx, wry+9, Color(220, 180, 40));
+          it.line(wrx-9, wry, wrx+9, wry, Color(220, 180, 40));
+
+          // Helios driver head (between sun and chariot)
+          it.filled_circle(dhx, dhy + 13, 5, Color(255, 195, 140));
+
+          // Two horses ahead (to the left, direction of travel)
+          for (int h = 0; h < 2; h++) {
+            int hbx = dhx - 55;
+            int hby = cby + (h == 0 ? -5 : 7);
+            // Body
+            it.filled_rectangle(hbx, hby, 22, 9, Color(190, 160, 110));
+            // Neck + head
+            it.line(hbx+22, hby+2, hbx+29, hby-7, Color(190, 160, 110));
+            it.filled_circle(hbx+30, hby-9, 4, Color(190, 160, 110));
+            // Legs
+            it.line(hbx+4,  hby+9, hbx+4,  hby+16, Color(150,120,80));
+            it.line(hbx+10, hby+9, hbx+10, hby+16, Color(150,120,80));
+            it.line(hbx+16, hby+9, hbx+16, hby+16, Color(150,120,80));
+            // Rein from chariot front to horse
+            it.line(cbx, cby+5, hbx+22, hby+3, Color(200,175,100));
           }
         }
 
-        // Save positions back to globals
-        id(drop_x1) = xs[0];  id(drop_y1) = ys[0];
-        id(drop_x2) = xs[1];  id(drop_y2) = ys[1];
-        id(drop_x3) = xs[2];  id(drop_y3) = ys[2];
-        id(drop_x4) = xs[3];  id(drop_y4) = ys[3];
-        id(drop_x5) = xs[4];  id(drop_y5) = ys[4];
-        id(drop_x6) = xs[5];  id(drop_y6) = ys[5];
-        id(drop_x7) = xs[6];  id(drop_y7) = ys[6];
-        id(drop_x8) = xs[7];  id(drop_y8) = ys[7];
-        id(drop_x9) = xs[8];  id(drop_y9) = ys[8];
-        id(drop_x10) = xs[9]; id(drop_y10) = ys[9];
+        // ── RAIN: diagonal drops + lightning strike on Helios ────────────
+        if (wm == 1) {
+          int xs[10]={id(drop_x1),id(drop_x2),id(drop_x3),id(drop_x4),id(drop_x5),
+                      id(drop_x6),id(drop_x7),id(drop_x8),id(drop_x9),id(drop_x10)};
+          int ys[10]={id(drop_y1),id(drop_y2),id(drop_y3),id(drop_y4),id(drop_y5),
+                      id(drop_y6),id(drop_y7),id(drop_y8),id(drop_y9),id(drop_y10)};
+          int sp[10]={3,4,5,3,4,6,3,5,4,6};
 
-        // Draw clock on top
-        auto now = id(ntp_time).now();
-        if (now.is_valid()) {
-          char hour_str[4];
-          char min_str[4];
-          snprintf(hour_str, sizeof(hour_str), "%02d", now.hour);
-          snprintf(min_str, sizeof(min_str), "%02d", now.minute);
-          int cx  = 120 + id(x_shift);
-          int cy1 =  70 + id(y_shift);
-          int cy2 = 170 + id(y_shift);
-          it.printf(cx, cy1, id(clock_font), Color::WHITE, TextAlign::CENTER, "%s", hour_str);
-          it.line(40 + id(x_shift), 120 + id(y_shift), 200 + id(x_shift), 120 + id(y_shift), Color(80, 80, 80));
-          it.printf(cx, cy2, id(clock_font), Color::WHITE, TextAlign::CENTER, "%s", min_str);
+          for (int i=0;i<10;i++)
+            it.line(xs[i], ys[i], xs[i]-3, ys[i]+8, Color(100,140,200));
+          for (int i=0;i<10;i++) {
+            ys[i]+=sp[i];
+            if(ys[i]>240){ys[i]=0; xs[i]=random(0,240);}
+          }
+          id(drop_x1)=xs[0];id(drop_y1)=ys[0]; id(drop_x2)=xs[1];id(drop_y2)=ys[1];
+          id(drop_x3)=xs[2];id(drop_y3)=ys[2]; id(drop_x4)=xs[3];id(drop_y4)=ys[3];
+          id(drop_x5)=xs[4];id(drop_y5)=ys[4]; id(drop_x6)=xs[5];id(drop_y6)=ys[5];
+          id(drop_x7)=xs[6];id(drop_y7)=ys[6]; id(drop_x8)=xs[7];id(drop_y8)=ys[7];
+          id(drop_x9)=xs[8];id(drop_y9)=ys[8]; id(drop_x10)=xs[9];id(drop_y10)=ys[9];
+
+          // Lightning: random bolt near Helios, flashes for ~10 frames
+          id(lightning_timer) -= 1;
+          if (id(lightning_timer) <= 0 && helios_on_screen && random(0,80)==0) {
+            id(lightning_timer) = 10;
+            id(lightning_x) = dhx + random(-25, 25);
+          }
+          if (id(lightning_timer) > 0) {
+            int lx = id(lightning_x), ly = dhy - 18;
+            it.line(lx,   ly,   lx+5, ly+13, Color(255,255,100));
+            it.line(lx+5, ly+13,lx-3, ly+25, Color(255,255,100));
+            it.line(lx-3, ly+25,lx+7, ly+40, Color(255,255,100));
+            // Flash halo around Helios on first few frames
+            if (id(lightning_timer) > 7)
+              it.circle(dhx, dhy, 27, Color(255,255,180));
+          }
         }
+
+        // ── CLOUDY: two cloud layers drifting at different speeds ─────────
+        if (wm == 2) {
+          int c1x = (f / 4) % 320 - 60;
+          int c2x = (f / 7 + 160) % 320 - 60;
+          // Foreground cloud (darker)
+          it.filled_circle(c1x,    50, 22, Color(130,135,148));
+          it.filled_circle(c1x+25, 38, 28, Color(130,135,148));
+          it.filled_circle(c1x+55, 50, 22, Color(130,135,148));
+          // Background cloud (lighter)
+          it.filled_circle(c2x,    82, 18, Color(155,158,168));
+          it.filled_circle(c2x+22, 70, 24, Color(155,158,168));
+          it.filled_circle(c2x+48, 82, 18, Color(155,158,168));
+        }
+
+        // ── WINDY: horizontal gusts scrolling across screen ───────────────
+        if (wm == 3) {
+          for (int w = 0; w < 6; w++) {
+            int wy   = 12 + w * 35;
+            int wx   = (f * (3+w) + w*70) % 340 - 40;
+            int wlen = 22 + w * 10;
+            it.line(wx, wy, wx+wlen, wy, Color(200,225,245));
+            if (wlen > 28)
+              it.line(wx+4, wy+2, wx+wlen-8, wy+2, Color(175,208,235));
+          }
+        }
+      }
+
+      // ── Clock (always on top, every mode) ───────────────────────────────
+      auto now = id(ntp_time).now();
+      if (now.is_valid()) {
+        char hour_str[4], min_str[4];
+        snprintf(hour_str, sizeof(hour_str), "%02d", now.hour);
+        snprintf(min_str,  sizeof(min_str),  "%02d", now.minute);
+        int cx  = 120 + id(x_shift);
+        int cy1 =  70 + id(y_shift);
+        int cy2 = 170 + id(y_shift);
+
+        it.printf(cx, cy1, id(clock_font), Color::WHITE, TextAlign::CENTER, "%s", hour_str);
+        it.line(40+id(x_shift), 120+id(y_shift), 200+id(x_shift), 120+id(y_shift), Color(80,80,80));
+        it.printf(cx, cy2, id(clock_font), Color::WHITE, TextAlign::CENTER, "%s", min_str);
       }
