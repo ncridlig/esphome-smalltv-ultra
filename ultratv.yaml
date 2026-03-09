@@ -57,7 +57,7 @@ font:
 time:
   - platform: sntp
     id: ntp_time
-    timezone: America/New_York  # ← change to your timezone (https://en.wikipedia.org/wiki/List_of_tz_database_time_zones)
+    timezone: Europe/Rome  # Bologna, Italy
 
 # ── Home Assistant controls ──────────────────────────────────────────────────
 #   switch.night_mode  → DAY (off) / NIGHT (on)
@@ -71,13 +71,9 @@ switch:
     restore_mode: RESTORE_DEFAULT_OFF
     lambda: return id(is_night);
     turn_on_action:
-      - globals.set:
-          id: is_night
-          value: 'true'
+      - lambda: id(is_night) = true;
     turn_off_action:
-      - globals.set:
-          id: is_night
-          value: 'false'
+      - lambda: id(is_night) = false;
 
 select:
   - platform: template
