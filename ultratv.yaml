@@ -336,57 +336,107 @@ display:
 
         // ── Draw Helios (sun, crown, chariot, horses) ───────────────────
         if (helios_on_screen) {
-          Color sun_col = (wm == 2) ? Color(180, 155, 60) : Color(255, 220, 50);
+          bool dim = (wm == 2);
+          // Palette
+          Color c_out  = dim ? Color(160,108,14) : Color(255,145,20);  // sun outer
+          Color c_mid  = dim ? Color(178,148,44) : Color(255,205,55);  // sun mid
+          Color c_pale = dim ? Color(193,178,108): Color(255,248,175); // sun pale
+          Color c_ray  = dim ? Color(172,138,28) : Color(255,200,40);  // crown rays
+          Color c_gold = Color(220,180,40);   // chariot gold trim
+          Color c_spk  = Color(185,145,30);   // wheel spokes
+          Color c_hrse = Color(245,238,215);  // horse cream
+          Color c_mane = Color(210,185,95);   // golden mane
+          Color c_rein = Color(195,165,85);   // reins
+          Color c_skin = Color(255,215,160);  // face skin
+          Color c_chk  = Color(255,150,138);  // rosy cheeks
+          Color c_eye  = Color(68,44,20);     // eye/line detail
 
-          // Sun disc
-          it.filled_circle(dhx, dhy, 20, sun_col);
+          // ── Sun disc (layered glow: orange → gold → pale → white core) ──
+          it.filled_circle(dhx, dhy, 22, c_out);
+          it.filled_circle(dhx, dhy, 16, c_mid);
+          it.filled_circle(dhx, dhy, 10, c_pale);
+          it.filled_circle(dhx, dhy,  4, Color(255,255,255));
 
-          // Crown: 8 radiating rays
+          // ── Crown rays: long at cardinals (0°,90°…), short at diagonals ─
           for (int r = 0; r < 8; r++) {
             float a = r * 0.7854f;
-            int x1 = dhx + (int)(cosf(a) * 22.0f);
-            int y1 = dhy + (int)(sinf(a) * 22.0f);
-            int x2 = dhx + (int)(cosf(a) * 35.0f);
-            int y2 = dhy + (int)(sinf(a) * 35.0f);
-            it.line(x1, y1, x2, y2, sun_col);
+            int outer = (r % 2 == 0) ? 38 : 30;
+            it.line(dhx+(int)(cosf(a)*23.f), dhy+(int)(sinf(a)*23.f),
+                    dhx+(int)(cosf(a)*(float)outer), dhy+(int)(sinf(a)*(float)outer),
+                    c_ray);
           }
 
-          // Chariot body (below sun disc)
-          int cbx = dhx - 20;
-          int cby = dhy + 24;
-          it.filled_rectangle(cbx,   cby,   40, 13, Color(150,  90, 15));  // body
-          it.filled_rectangle(cbx+1, cby-2, 38,  4, Color(220, 180, 40));  // gold trim
+          // ── Helios face: zen expression on the sun disc ──────────────────
+          it.filled_circle(dhx, dhy, 9, c_skin);
+          // Closed peaceful eyes (∧ arcs)
+          it.line(dhx-5, dhy-1, dhx-3, dhy-3, c_eye);
+          it.line(dhx-3, dhy-3, dhx-1, dhy-1, c_eye);
+          it.line(dhx+1, dhy-1, dhx+3, dhy-3, c_eye);
+          it.line(dhx+3, dhy-3, dhx+5, dhy-1, c_eye);
+          // Gentle smile
+          it.line(dhx-3, dhy+3, dhx,   dhy+5, c_eye);
+          it.line(dhx,   dhy+5, dhx+3, dhy+3, c_eye);
+          // Rosy cheeks
+          it.filled_circle(dhx-5, dhy+1, 2, c_chk);
+          it.filled_circle(dhx+5, dhy+1, 2, c_chk);
 
-          // Left wheel (spokes)
-          int wlx = dhx - 17, wly = cby + 13;
-          it.circle(wlx, wly, 9, Color(220, 180, 40));
-          it.line(wlx, wly-9, wlx, wly+9, Color(220, 180, 40));
-          it.line(wlx-9, wly, wlx+9, wly, Color(220, 180, 40));
+          // ── Chariot body (crimson lacquer, gold-trimmed) ─────────────────
+          int cbx = dhx - 22;
+          int cby = dhy + 26;
+          it.filled_rectangle(cbx,    cby,    44, 14, Color(148,22,22)); // crimson
+          it.filled_rectangle(cbx,    cby-2,  44,  3, c_gold);  // top trim
+          it.filled_rectangle(cbx,    cby+14, 44,  2, c_gold);  // bottom trim
+          it.line(cbx,    cby-2, cbx,    cby+16, c_gold);       // left edge
+          it.line(cbx+43, cby-2, cbx+43, cby+16, c_gold);       // right edge
+          it.circle(cbx+43, cby+7, 5, c_gold);                  // ornate front boss
 
-          // Right wheel
-          int wrx = dhx + 17, wry = cby + 13;
-          it.circle(wrx, wry, 9, Color(220, 180, 40));
-          it.line(wrx, wry-9, wrx, wry+9, Color(220, 180, 40));
-          it.line(wrx-9, wry, wrx+9, wry, Color(220, 180, 40));
+          // ── Wheels: 6-spoke gold (frame-animated rotation) ───────────────
+          int wly = cby + 15;
+          float wrot = f * 0.12f;  // wheel rotation angle
+          int wlx = dhx - 18;
+          it.circle(wlx, wly, 10, c_gold);
+          it.filled_circle(wlx, wly, 2, c_gold);
+          for (int s = 0; s < 6; s++) {
+            float sa = wrot + s * 1.0472f;
+            it.line(wlx+(int)(cosf(sa)*2.f), wly+(int)(sinf(sa)*2.f),
+                    wlx+(int)(cosf(sa)*9.f), wly+(int)(sinf(sa)*9.f), c_spk);
+          }
+          int wrx = dhx + 18;
+          it.circle(wrx, wly, 10, c_gold);
+          it.filled_circle(wrx, wly, 2, c_gold);
+          for (int s = 0; s < 6; s++) {
+            float sa = wrot + s * 1.0472f;
+            it.line(wrx+(int)(cosf(sa)*2.f), wly+(int)(sinf(sa)*2.f),
+                    wrx+(int)(cosf(sa)*9.f), wly+(int)(sinf(sa)*9.f), c_spk);
+          }
 
-          // Helios driver head (between sun and chariot)
-          it.filled_circle(dhx, dhy + 13, 5, Color(255, 195, 140));
-
-          // Two horses ahead (to the left, direction of travel)
+          // ── Horses: two cream steeds ahead (to the right, correct direction)
           for (int h = 0; h < 2; h++) {
-            int hbx = dhx - 55;
-            int hby = cby + (h == 0 ? -5 : 7);
+            int hbx = dhx + 32;
+            int hby = cby + (h == 0 ? -8 : 6);
             // Body
-            it.filled_rectangle(hbx, hby, 22, 9, Color(190, 160, 110));
-            // Neck + head
-            it.line(hbx+22, hby+2, hbx+29, hby-7, Color(190, 160, 110));
-            it.filled_circle(hbx+30, hby-9, 4, Color(190, 160, 110));
-            // Legs
-            it.line(hbx+4,  hby+9, hbx+4,  hby+16, Color(150,120,80));
-            it.line(hbx+10, hby+9, hbx+10, hby+16, Color(150,120,80));
-            it.line(hbx+16, hby+9, hbx+16, hby+16, Color(150,120,80));
-            // Rein from chariot front to horse
-            it.line(cbx, cby+5, hbx+22, hby+3, Color(200,175,100));
+            it.filled_rectangle(hbx, hby, 26, 10, c_hrse);
+            it.line(hbx+2, hby+10, hbx+24, hby+10, Color(198,182,152)); // belly
+            // Arched neck (stacked circles for curve)
+            it.filled_circle(hbx+24, hby+3, 6, c_hrse);
+            it.filled_circle(hbx+29, hby-2, 5, c_hrse);
+            // Head
+            it.filled_circle(hbx+34, hby-6, 5, c_hrse);
+            // Eye + nostril
+            it.filled_circle(hbx+36, hby-8, 1, c_eye);
+            it.filled_circle(hbx+37, hby-4, 1, Color(198,172,138));
+            // Golden mane (cascading blobs along neck)
+            it.filled_circle(hbx+24, hby-1, 4, c_mane);
+            it.filled_circle(hbx+27, hby-5, 3, c_mane);
+            it.filled_circle(hbx+30, hby-7, 2, c_mane);
+            // Running legs (front pair forward, rear pair back)
+            int ly = hby + 10;
+            it.line(hbx+5,  ly, hbx+3,  ly+16, Color(188,162,118));
+            it.line(hbx+10, ly, hbx+9,  ly+16, Color(188,162,118));
+            it.line(hbx+16, ly, hbx+18, ly+16, Color(188,162,118));
+            it.line(hbx+21, ly, hbx+23, ly+16, Color(188,162,118));
+            // Rein from chariot right edge to horse left side
+            it.line(cbx+43, cby+5, hbx, hby+4, c_rein);
           }
         }
 
