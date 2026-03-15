@@ -87,6 +87,7 @@ select:
       - "Windy"
     initial_option: "Auto"
     restore_value: true
+    optimistic: true
     set_action:
       - lambda: |-
           if      (x == "Rain")   id(weather_mode) = 1;
@@ -98,8 +99,14 @@ select:
 # Change entity_id to match your weather integration (e.g. weather.openweathermap).
 text_sensor:
   - platform: homeassistant
+    id: ha_light_status
+    entity_id: sensor.house_light_status
+    on_value:
+      then:
+        - lambda: id(is_night) = (x == "dark");
+  - platform: homeassistant
     id: ha_weather
-    entity_id: weather.home
+    entity_id: weather.forecast_home
     on_value:
       then:
         - lambda: |-
