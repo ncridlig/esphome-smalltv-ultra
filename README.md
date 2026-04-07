@@ -130,6 +130,15 @@ wifi_ssid: "YourNetworkName"
 wifi_password: "YourPassword"
 ```
 
+### Security hardening ideas
+
+These are not required for basic use, but they are worth considering before exposing the config publicly or deploying the device on a shared network:
+
+- Move the fallback AP password into `secrets.yaml` or disable the fallback AP entirely. The current captive portal credentials are hardcoded in the main config.
+- Protect or disable the built-in `web_server:` if you do not need the device's HTTP UI on your LAN.
+- Add an OTA password so firmware updates are not left open to anyone who can reach the device on the network.
+- Add ESPHome API encryption if you want stronger protection for Home Assistant to device traffic.
+
 ### 2. Set your timezone
 
 Edit `ultratv.yaml` and update the `timezone:` field under `time:`. Find your timezone string in the [tz database list](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones).
