@@ -53,6 +53,9 @@ font:
   - file: "gfonts://Stack+Sans+Notch"
     id: rain_font
     size: 14
+  - file: "gfonts://Stack+Sans+Notch"
+    id: temp_font
+    size: 28
 
 time:
   - platform: sntp
@@ -127,6 +130,14 @@ text_sensor:
             } else {
               id(weather_mode) = 0;  // sunny, clear, partlycloudy → Clear
             }
+
+sensor:
+  - platform: homeassistant
+    id: ha_temperature
+    entity_id: sensor.bologna_weather_forecast_temperature
+  - platform: homeassistant
+    id: ha_home_temperature
+    entity_id: sensor.shellyhtg3_54320466ea6c_temperature
 
 globals:
   # ── Mode state ──────────────────────────────────────────────────────────
@@ -452,12 +463,26 @@ display:
       if (now.is_valid()) {
         char hour_str[4], min_str[4];
         snprintf(hour_str, sizeof(hour_str), "%02d", now.hour);
-        snprintf(min_str,  sizeof(min_str),  "%02d", now.minute);
+        snprintf(min_str, sizeof(min_str), "%02d", now.minute);
         int cx  = 120 + id(x_shift);
-        int cy1 =  70 + id(y_shift);
-        int cy2 = 170 + id(y_shift);
+        int cy1 =  82 + id(y_shift);
+        int cy2 = 182 + id(y_shift);
 
         it.printf(cx, cy1, id(clock_font), Color::WHITE, TextAlign::CENTER, "%s", hour_str);
-        it.line(40+id(x_shift), 120+id(y_shift), 200+id(x_shift), 120+id(y_shift), Color(80,80,80));
+        it.line(40+id(x_shift), 132+id(y_shift), 200+id(x_shift), 132+id(y_shift), Color(80,80,80));
         it.printf(cx, cy2, id(clock_font), Color::WHITE, TextAlign::CENTER, "%s", min_str);
+      }
+
+      if (id(ha_home_temperature).has_state()) {
+        char temp_str[8];
+        int temp_c = (int) roundf(id(ha_home_temperature).state);
+        snprintf(temp_str, sizeof(temp_str), "%d°", temp_c);
+        it.printf(10, 10, id(temp_font), Color::WHITE, TextAlign::TOP_LEFT, "%s", temp_str);
+      }
+
+      if (id(ha_temperature).has_state()) {
+        char temp_str[8];
+        int temp_c = (int) roundf(id(ha_temperature).state);
+        snprintf(temp_str, sizeof(temp_str), "%d°", temp_c);
+        it.printf(230, 10, id(temp_font), Color::WHITE, TextAlign::TOP_RIGHT, "%s", temp_str);
       }
