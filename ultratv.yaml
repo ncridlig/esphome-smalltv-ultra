@@ -56,6 +56,11 @@ font:
   - file: "gfonts://Stack+Sans+Notch"
     id: temp_font
     size: 28
+    extras:
+      - file: "gfonts://Noto+Emoji"
+        glyphs:
+          - "🏠"
+          - "🌳"
 
 time:
   - platform: sntp
@@ -290,7 +295,7 @@ display:
     dc_pin: GPIO00
     reset_pin: GPIO02
     color_depth: 8
-    update_interval: 50ms
+    update_interval: 1000ms
     id: disp
     spi_mode: mode3
 
@@ -477,12 +482,12 @@ display:
         char temp_str[8];
         int temp_c = (int) roundf(id(ha_home_temperature).state);
         snprintf(temp_str, sizeof(temp_str), "%d°", temp_c);
-        it.printf(10, 10, id(temp_font), Color::WHITE, TextAlign::TOP_LEFT, "%s", temp_str);
+        it.printf(10, 10, id(temp_font), Color::WHITE, TextAlign::TOP_LEFT, "🏠 %s", temp_str);
       }
 
       if (id(ha_temperature).has_state()) {
         char temp_str[8];
         int temp_c = (int) roundf(id(ha_temperature).state);
         snprintf(temp_str, sizeof(temp_str), "%d°", temp_c);
-        it.printf(230, 10, id(temp_font), Color::WHITE, TextAlign::TOP_RIGHT, "%s", temp_str);
+        it.printf(230, 10, id(temp_font), Color::WHITE, TextAlign::TOP_RIGHT, "🌳 %s", temp_str);
       }
