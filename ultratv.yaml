@@ -19,10 +19,17 @@ wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
   min_auth_mode: WPA2
+  fast_connect: true
+
+  on_connect:
+    - lambda: id(wifi_ok) = true;
+  on_disconnect:
+    - lambda: id(wifi_ok) = false;
 
   ap:
     ssid: "Mini-Display-Tv"
     password: "12345678"
+    ap_timeout: 15s
 
 captive_portal:
 
@@ -65,7 +72,7 @@ font:
 time:
   - platform: sntp
     id: ntp_time
-    timezone: Europe/Rome  # Bologna, Italy
+    timezone: Europe/Rome 
 
 # ── Home Assistant controls ──────────────────────────────────────────────────
 #   switch.night_mode  → DAY (off) / NIGHT (on)
@@ -139,12 +146,18 @@ text_sensor:
 sensor:
   - platform: homeassistant
     id: ha_temperature
-    entity_id: sensor.bologna_weather_forecast_temperature
+    entity_id: sensor.place_victor_basch_paris_temperature
   - platform: homeassistant
     id: ha_home_temperature
     entity_id: sensor.shellyhtg3_54320466ea6c_temperature
 
 globals:
+  # ── WiFi state ──────────────────────────────────────────────────────────
+  - id: wifi_ok
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
   # ── Mode state ──────────────────────────────────────────────────────────
   - id: is_night
     type: bool
@@ -300,6 +313,13 @@ display:
     spi_mode: mode3
 
     lambda: |-
+      if (!id(wifi_ok)) {
+        it.fill(Color(0, 0, 40));
+        it.printf(120, 100, id(temp_font), Color::WHITE, TextAlign::CENTER, "WiFi perdu");
+        it.printf(120, 140, id(rain_font), Color(150, 150, 150), TextAlign::CENTER, "Rejoindre Mini-Display-Tv");
+        return;
+      }
+
       id(anim_frame) += 1;
       int f  = id(anim_frame);
       int wm = id(weather_mode);   // 0=CLEAR 1=RAIN 2=CLOUDY 3=WINDY
@@ -478,14 +498,14 @@ display:
         it.printf(cx, cy2, id(clock_font), Color::WHITE, TextAlign::CENTER, "%s", min_str);
       }
 
-      if (id(ha_home_temperature).has_state()) {
+      if (id(ha_home_temperature).has_state() && isfinite(id(ha_home_temperature).state)) {
         char temp_str[8];
         int temp_c = (int) roundf(id(ha_home_temperature).state);
         snprintf(temp_str, sizeof(temp_str), "%d°", temp_c);
         it.printf(10, 10, id(temp_font), Color::WHITE, TextAlign::TOP_LEFT, "🏠 %s", temp_str);
       }
 
-      if (id(ha_temperature).has_state()) {
+      if (id(ha_temperature).has_state() && isfinite(id(ha_temperature).state)) {
         char temp_str[8];
         int temp_c = (int) roundf(id(ha_temperature).state);
         snprintf(temp_str, sizeof(temp_str), "%d°", temp_c);
