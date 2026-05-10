@@ -121,11 +121,11 @@ text_sensor:
         - lambda: id(is_night) = (x == "dark");
   - platform: homeassistant
     id: ha_weather
-    entity_id: weather.forecast_home
+    entity_id: weather.forecast_home_2
     on_value:
       then:
         - lambda: |-
-            if (id(weather_select).state != "Auto") return;
+            if (id(weather_select).current_option() != "Auto") return;
             if (x.find("rain")      != std::string::npos ||
                 x.find("lightning") != std::string::npos ||
                 x.find("pour")      != std::string::npos ||

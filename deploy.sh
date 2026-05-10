@@ -35,5 +35,12 @@ if [ ! -f "$SECRETS" ]; then
   exit 1
 fi
 
+echo "Validating config..."
+if ! esphome config "$YAML" > /dev/null; then
+  echo ""
+  echo "Config validation failed. Fix the errors above before flashing."
+  exit 1
+fi
+
 echo "Compiling and pushing to geekmagic.local ..."
 esphome run "$YAML"
