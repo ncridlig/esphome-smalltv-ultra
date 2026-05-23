@@ -69,14 +69,24 @@ font:
           - "🏠"
           - "🌳"
 
+  - file: "gfonts://Stack+Sans+Notch"
+    id: weather_big_font
+    size: 80
+    extras:
+      - file: "gfonts://Noto+Emoji"
+        glyphs:
+          - "🏠"
+          - "🌳"
+
 time:
   - platform: sntp
     id: ntp_time
     timezone: Europe/Rome 
 
 # ── Home Assistant controls ──────────────────────────────────────────────────
-#   switch.night_mode  → DAY (off) / NIGHT (on)
-#   select.weather     → Auto / Clear / Rain / Cloudy / Windy
+#   switch.night_mode          → DAY (off) / NIGHT (on)
+#   switch.emphasize_weather   → clock big (off) / weather big (on)
+#   select.weather             → Auto / Clear / Rain / Cloudy / Windy
 # ────────────────────────────────────────────────────────────────────────────
 
 switch:
@@ -89,6 +99,16 @@ switch:
       - lambda: id(is_night) = true;
     turn_off_action:
       - lambda: id(is_night) = false;
+
+  - platform: template
+    name: "Emphasize Weather"
+    id: emphasize_weather_switch
+    restore_mode: RESTORE_DEFAULT_OFF
+    lambda: return id(emphasize_weather);
+    turn_on_action:
+      - lambda: id(emphasize_weather) = true;
+    turn_off_action:
+      - lambda: id(emphasize_weather) = false;
 
 select:
   - platform: template
@@ -131,6 +151,8 @@ text_sensor:
                 x.find("pour")      != std::string::npos ||
                 x.find("drizzle")   != std::string::npos) {
               id(weather_mode) = 1;
+            } else if (x == "partlycloudy") {
+              id(weather_mode) = 0;
             } else if (x.find("cloud")   != std::string::npos ||
                        x.find("fog")     != std::string::npos ||
                        x.find("snow")    != std::string::npos ||
@@ -140,7 +162,7 @@ text_sensor:
             } else if (x.find("wind") != std::string::npos) {
               id(weather_mode) = 3;
             } else {
-              id(weather_mode) = 0;  // sunny, clear, partlycloudy → Clear
+              id(weather_mode) = 0;  // sunny, clear → Clear
             }
 
 sensor:
@@ -170,6 +192,12 @@ globals:
     restore_value: yes
     initial_value: '0'
 
+  # ── Weather emphasis toggle ──────────────────────────────────────────────
+  - id: emphasize_weather
+    type: bool
+    restore_value: yes
+    initial_value: 'false'
+
   # ── Animation counter ────────────────────────────────────────────────────
   - id: anim_frame
     type: int
@@ -195,16 +223,6 @@ globals:
     type: int
     restore_value: no
     initial_value: '-20'
-
-  # Burn-in pixel shift
-  - id: x_shift
-    type: int
-    restore_value: no
-    initial_value: '0'
-  - id: y_shift
-    type: int
-    restore_value: no
-    initial_value: '0'
 
   # Raindrop X positions
   - id: drop_x1
@@ -289,13 +307,6 @@ globals:
     type: int
     restore_value: no
     initial_value: '120'
-
-interval:
-  - interval: 60s
-    then:
-      - lambda: |-
-          id(x_shift) = (id(x_shift) + 1) % 5;
-          id(y_shift) = (id(y_shift) + 1) % 5;
 
 display:
   - platform: mipi_spi
@@ -483,31 +494,54 @@ display:
         }
       }
 
-      // ── Clock (always on top, every mode) ───────────────────────────────
+      // ── Clock ────────────────────────────────────────────────────────────
       auto now = id(ntp_time).now();
       if (now.is_valid()) {
-        char hour_str[4], min_str[4];
-        snprintf(hour_str, sizeof(hour_str), "%02d", now.hour);
-        snprintf(min_str, sizeof(min_str), "%02d", now.minute);
-        int cx  = 120 + id(x_shift);
-        int cy1 =  82 + id(y_shift);
-        int cy2 = 182 + id(y_shift);
+        if (!id(emphasize_weather)) {
+          char hour_str[4], min_str[4];
+          snprintf(hour_str, sizeof(hour_str), "%02d", now.hour);
+          snprintf(min_str, sizeof(min_str), "%02d", now.minute);
+          int cx  = 120;
+          int cy1 =  82;
+          int cy2 = 182;
 
-        it.printf(cx, cy1, id(clock_font), Color::WHITE, TextAlign::CENTER, "%s", hour_str);
-        it.line(40+id(x_shift), 132+id(y_shift), 200+id(x_shift), 132+id(y_shift), Color(80,80,80));
-        it.printf(cx, cy2, id(clock_font), Color::WHITE, TextAlign::CENTER, "%s", min_str);
+          it.printf(cx, cy1, id(clock_font), Color::WHITE, TextAlign::CENTER, "%s", hour_str);
+          it.line(40, 132, 200, 132, Color(80,80,80));
+          it.printf(cx, cy2, id(clock_font), Color::WHITE, TextAlign::CENTER, "%s", min_str);
+        } else {
+          char time_str[8];
+          snprintf(time_str, sizeof(time_str), "%02d:%02d", now.hour, now.minute);
+          it.printf(230, 10, id(temp_font), Color::WHITE, TextAlign::TOP_RIGHT, "%s", time_str);
+        }
       }
 
+      // ── Indoor temperature ──────────────────────────────────────────────
       if (id(ha_home_temperature).has_state() && isfinite(id(ha_home_temperature).state)) {
         char temp_str[8];
         int temp_c = (int) roundf(id(ha_home_temperature).state);
         snprintf(temp_str, sizeof(temp_str), "%d°", temp_c);
-        it.printf(10, 10, id(temp_font), Color::WHITE, TextAlign::TOP_LEFT, "🏠 %s", temp_str);
+        if (!id(emphasize_weather)) {
+          it.printf(10, 10, id(temp_font), Color::WHITE, TextAlign::TOP_LEFT, "🏠 %s", temp_str);
+        } else {
+          it.printf(120, 82, id(weather_big_font), Color::WHITE, TextAlign::CENTER, "🏠 %s", temp_str);
+          // Tighter gap option: split glyph and number into separate printf calls:
+          //   it.printf(106, 82, id(weather_big_font), Color::WHITE, TextAlign::CENTER, "🏠");
+          //   it.printf(134, 82, id(weather_big_font), Color::WHITE, TextAlign::CENTER, "%s", temp_str);
+          it.line(40, 132, 200, 132, Color(80,80,80));
+        }
       }
 
+      // ── Outdoor temperature ─────────────────────────────────────────────
       if (id(ha_temperature).has_state() && isfinite(id(ha_temperature).state)) {
         char temp_str[8];
         int temp_c = (int) roundf(id(ha_temperature).state);
         snprintf(temp_str, sizeof(temp_str), "%d°", temp_c);
-        it.printf(230, 10, id(temp_font), Color::WHITE, TextAlign::TOP_RIGHT, "🌳 %s", temp_str);
+        if (!id(emphasize_weather)) {
+          it.printf(230, 10, id(temp_font), Color::WHITE, TextAlign::TOP_RIGHT, "🌳 %s", temp_str);
+        } else {
+          it.printf(120, 182, id(weather_big_font), Color::WHITE, TextAlign::CENTER, "🌳 %s", temp_str);
+          // Tighter gap option:
+          //   it.printf(106, 182, id(weather_big_font), Color::WHITE, TextAlign::CENTER, "🌳");
+          //   it.printf(134, 182, id(weather_big_font), Color::WHITE, TextAlign::CENTER, "%s", temp_str);
+        }
       }
